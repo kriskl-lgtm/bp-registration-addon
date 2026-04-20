@@ -1,8 +1,10 @@
 <?php
 /**
  * Plugin Name: BP Registration Addon
- * Description: Anti-spam addon for BuddyPress registration (honeypot, math captcha, time-trap, disposable-email blocklist), duplicate email/username checks, blocked usernames, and optional signup nonce protection.
- * Version: 1.3.0
+ * Description: Anti-spam addon for BuddyPress registration (honeypot, math captcha, time-trap,
+ *              disposable-email blocklist), duplicate email/username checks, blocked usernames,
+ *              spaces/length rules, and optional signup nonce protection.
+ * Version: 1.4.0
  * Author: Kris
  * Text Domain: bp-registration-addon
  */
@@ -11,10 +13,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'BPRA_VERSION', '1.3.0' );
+define( 'BPRA_VERSION', '1.4.0' );
 define( 'BPRA_PATH', plugin_dir_path( __FILE__ ) );
 define( 'BPRA_URL', plugin_dir_url( __FILE__ ) );
 
+// Load all classes — order matters (Logger must be first)
 require_once BPRA_PATH . 'includes/class-logger.php';
 require_once BPRA_PATH . 'includes/class-settings.php';
 require_once BPRA_PATH . 'includes/class-antispam.php';
@@ -25,11 +28,17 @@ require_once BPRA_PATH . 'includes/class-username-rules.php';
 require_once BPRA_PATH . 'includes/class-duplicate-check.php';
 require_once BPRA_PATH . 'admin/class-admin.php';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SETTINGS HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * Default settings — every key the plugin uses must live here.
+ * Canonical default values for every setting key the plugin uses.
+ * Any key missing from the saved option will fall back to this value.
  */
 function bpra_default_settings() {
 	return array(
+		// Anti-spam
 		'enable_honeypot'            => 1,
 		'enable_timetrap'            => 1,
 		'min_fill_seconds'           => 5,
@@ -37,24 +46,28 @@ function bpra_default_settings() {
 		'enable_disposable'          => 1,
 		'enable_ratelimit'           => 1,
 		'ratelimit_per_hour'         => 5,
+		// Username rules
 		'enable_username_rules'      => 1,
 		'block_numeric_only'         => 1,
 		'disallow_username_spaces'   => 1,
 		'min_username_length'        => 3,
 		'max_username_length'        => 20,
+		// Logging
 		'log_blocked'                => 1,
+		// Domain blocking
 		'enable_banned_domains'      => 0,
 		'banned_domains'             => '',
+		// Username blocking
 		'blocked_usernames'          => '',
 		'blocked_username_fragments' => '',
+		// Signup nonce
 		'enable_signup_nonce'        => 0,
 	);
 }
 
 /**
- * Get settings merged with defaults.
- * Uses wp_parse_args so any missing key always returns a sane default
- * without overwriting saved values.
+ * Return saved settings merged with defaults.
+ * wp_parse_args fills missing keys without ever overwriting saved values.
  */
 function bpra_get_settings() {
 	$saved = get_option( 'bpra_settings', array() );
@@ -64,28 +77,24 @@ function bpra_get_settings() {
 	return wp_parse_args( $saved, bpra_default_settings() );
 }
 
-/**
- * Get a single setting value.
- */
+/** Return a single setting value. */
 function bpra_setting( $key, $default = null ) {
-	$settings = bpra_get_settings();
-	if ( array_key_exists( $key, $settings ) ) {
-		return $settings[ $key ];
-	}
-	return $default;
+	$s = bpra_get_settings();
+	return array_key_exists( $key, $s ) ? $s[ $key ] : $default;
 }
 
-/**
- * Check if a boolean setting is enabled.
- */
+/** Return true when a boolean setting is enabled (non-empty). */
 function bpra_is_enabled( $key ) {
 	return ! empty( bpra_setting( $key ) );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ACTIVATION
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * Activation hook:
- * Merges saved settings with defaults — never overwrites existing saved values.
- * This ensures newly added settings survive reinstall/reactivation.
+ * On activation: merge saved settings with defaults.
+ * NEVER replaces saved values — only fills in keys that are missing.
  */
 function bpra_activate() {
 	$current = get_option( 'bpra_settings', array() );
@@ -94,15 +103,17 @@ function bpra_activate() {
 	}
 	update_option( 'bpra_settings', wp_parse_args( $current, bpra_default_settings() ) );
 
-	if ( get_option( 'bpra_username_mode', false ) === false ) {
+	// username_mode is stored separately so it is not lost on settings reset
+	if ( false === get_option( 'bpra_username_mode' ) ) {
 		add_option( 'bpra_username_mode', 'letters_numbers' );
 	}
 }
 register_activation_hook( __FILE__, 'bpra_activate' );
 
-/**
- * Admin notice when BuddyPress is not active.
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// BOOTSTRAP
+// ─────────────────────────────────────────────────────────────────────────────
+
 function bpra_missing_buddypress_notice() {
 	if ( current_user_can( 'activate_plugins' ) ) {
 		echo '<div class="notice notice-error"><p>' .
@@ -112,7 +123,9 @@ function bpra_missing_buddypress_notice() {
 }
 
 /**
- * Bootstrap — uses real class names from the repo.
+ * Boot all components after BuddyPress has loaded.
+ * Uses class_exists() guards so a missing/renamed file never causes a fatal.
+ * Uses ::instance() for all singleton classes (confirmed from repo source).
  */
 function bpra_bootstrap() {
 	if ( ! function_exists( 'buddypress' ) ) {
@@ -120,42 +133,42 @@ function bpra_bootstrap() {
 		return;
 	}
 
-	// BPRA_Settings — class-settings.php
+	// Settings — registers bpra_settings with the WP Settings API
 	if ( class_exists( 'BPRA_Settings' ) ) {
-		BPRA_Settings::init();
+		BPRA_Settings::instance();
 	}
 
-	// BPRA_AntiSpam — class-antispam.php
+	// Anti-spam: honeypot, timetrap, math captcha
 	if ( class_exists( 'BPRA_AntiSpam' ) ) {
-		BPRA_AntiSpam::init();
+		BPRA_AntiSpam::instance();
 	}
 
-	// BPRA_BannedDomains — class-banned-domains.php (real class name)
+	// Banned email domains
 	if ( class_exists( 'BPRA_BannedDomains' ) ) {
 		BPRA_BannedDomains::instance();
 	}
 
-	// BPRA_Disposable — class-disposable.php
+	// Disposable email domain blocklist
 	if ( class_exists( 'BPRA_Disposable' ) ) {
-		BPRA_Disposable::init();
+		BPRA_Disposable::instance();
 	}
 
-	// BPRA_RateLimit — class-ratelimit.php
+	// Per-IP rate limiting
 	if ( class_exists( 'BPRA_RateLimit' ) ) {
-		BPRA_RateLimit::init();
+		BPRA_RateLimit::instance();
 	}
 
-	// BPRA_UsernameRules — class-username-rules.php (real class name)
+	// Username character rules, length, spaces, blocked names
 	if ( class_exists( 'BPRA_UsernameRules' ) ) {
 		BPRA_UsernameRules::instance();
 	}
 
-	// BPRA_DuplicateCheck — class-duplicate-check.php
+	// Duplicate username/email check (also handles signup nonce)
 	if ( class_exists( 'BPRA_DuplicateCheck' ) ) {
 		BPRA_DuplicateCheck::instance();
 	}
 
-	// BPRA_Admin — admin/class-admin.php
+	// Admin settings page
 	if ( class_exists( 'BPRA_Admin' ) ) {
 		BPRA_Admin::instance();
 	}
