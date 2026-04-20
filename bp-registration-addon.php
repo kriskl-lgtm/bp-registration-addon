@@ -26,74 +26,73 @@ require_once BPRA_PATH . 'includes/class-duplicate-check.php';
 require_once BPRA_PATH . 'admin/class-admin.php';
 
 /**
- * Default plugin settings.
+ * Default settings — every key the plugin uses must live here.
  */
 function bpra_default_settings() {
 	return array(
-		'enable_honeypot'             => 1,
-		'enable_timetrap'             => 1,
-		'min_fill_seconds'            => 5,
-		'enable_math'                 => 0,
-		'enable_disposable'           => 1,
-		'enable_ratelimit'            => 1,
-		'ratelimit_per_hour'          => 5,
-		'enable_username_rules'       => 1,
-		'block_numeric_only'          => 1,
-		'disallow_username_spaces'    => 1,
-		'min_username_length'         => 3,
-		'max_username_length'         => 20,
-		'log_blocked'                 => 1,
-		'enable_banned_domains'       => 0,
-		'banned_domains'              => '',
-		'blocked_usernames'           => '',
-		'blocked_username_fragments'  => '',
-		'enable_signup_nonce'         => 0,
+		'enable_honeypot'            => 1,
+		'enable_timetrap'            => 1,
+		'min_fill_seconds'           => 5,
+		'enable_math'                => 0,
+		'enable_disposable'          => 1,
+		'enable_ratelimit'           => 1,
+		'ratelimit_per_hour'         => 5,
+		'enable_username_rules'      => 1,
+		'block_numeric_only'         => 1,
+		'disallow_username_spaces'   => 1,
+		'min_username_length'        => 3,
+		'max_username_length'        => 20,
+		'log_blocked'                => 1,
+		'enable_banned_domains'      => 0,
+		'banned_domains'             => '',
+		'blocked_usernames'          => '',
+		'blocked_username_fragments' => '',
+		'enable_signup_nonce'        => 0,
 	);
 }
 
 /**
- * Get merged settings.
+ * Get settings merged with defaults.
+ * Uses wp_parse_args so any missing key always returns a sane default
+ * without overwriting saved values.
  */
 function bpra_get_settings() {
 	$saved = get_option( 'bpra_settings', array() );
 	if ( ! is_array( $saved ) ) {
 		$saved = array();
 	}
-
 	return wp_parse_args( $saved, bpra_default_settings() );
 }
 
 /**
- * Convenience helper.
+ * Get a single setting value.
  */
 function bpra_setting( $key, $default = null ) {
 	$settings = bpra_get_settings();
-
 	if ( array_key_exists( $key, $settings ) ) {
 		return $settings[ $key ];
 	}
-
 	return $default;
 }
 
 /**
- * Convenience helper.
+ * Check if a boolean setting is enabled.
  */
 function bpra_is_enabled( $key ) {
 	return ! empty( bpra_setting( $key ) );
 }
 
 /**
- * Activation hook: merge defaults, never overwrite saved settings.
+ * Activation hook:
+ * Merges saved settings with defaults — never overwrites existing saved values.
+ * This ensures newly added settings survive reinstall/reactivation.
  */
 function bpra_activate() {
 	$current = get_option( 'bpra_settings', array() );
 	if ( ! is_array( $current ) ) {
 		$current = array();
 	}
-
-	$merged = wp_parse_args( $current, bpra_default_settings() );
-	update_option( 'bpra_settings', $merged );
+	update_option( 'bpra_settings', wp_parse_args( $current, bpra_default_settings() ) );
 
 	if ( get_option( 'bpra_username_mode', false ) === false ) {
 		add_option( 'bpra_username_mode', 'letters_numbers' );
@@ -102,18 +101,18 @@ function bpra_activate() {
 register_activation_hook( __FILE__, 'bpra_activate' );
 
 /**
- * Admin notice if BuddyPress is missing.
+ * Admin notice when BuddyPress is not active.
  */
 function bpra_missing_buddypress_notice() {
 	if ( current_user_can( 'activate_plugins' ) ) {
 		echo '<div class="notice notice-error"><p>' .
 			esc_html__( 'BP Registration Addon requires BuddyPress to be active.', 'bp-registration-addon' ) .
-		'</p></div>';
+			'</p></div>';
 	}
 }
 
 /**
- * Boot plugin after BuddyPress is loaded.
+ * Bootstrap — uses real class names from the repo.
  */
 function bpra_bootstrap() {
 	if ( ! function_exists( 'buddypress' ) ) {
@@ -121,13 +120,44 @@ function bpra_bootstrap() {
 		return;
 	}
 
-	BPRA_Settings::instance();
-	BPRA_AntiSpam::instance();
-	BPRA_Banned_Domains::instance();
-	BPRA_Disposable::instance();
-	BPRA_RateLimit::instance();
-	BPRA_Username_Rules::instance();
-	BPRA_DuplicateCheck::instance();
-	BPRA_Admin::instance();
+	// BPRA_Settings — class-settings.php
+	if ( class_exists( 'BPRA_Settings' ) ) {
+		BPRA_Settings::init();
+	}
+
+	// BPRA_AntiSpam — class-antispam.php
+	if ( class_exists( 'BPRA_AntiSpam' ) ) {
+		BPRA_AntiSpam::init();
+	}
+
+	// BPRA_BannedDomains — class-banned-domains.php (real class name)
+	if ( class_exists( 'BPRA_BannedDomains' ) ) {
+		BPRA_BannedDomains::instance();
+	}
+
+	// BPRA_Disposable — class-disposable.php
+	if ( class_exists( 'BPRA_Disposable' ) ) {
+		BPRA_Disposable::init();
+	}
+
+	// BPRA_RateLimit — class-ratelimit.php
+	if ( class_exists( 'BPRA_RateLimit' ) ) {
+		BPRA_RateLimit::init();
+	}
+
+	// BPRA_UsernameRules — class-username-rules.php (real class name)
+	if ( class_exists( 'BPRA_UsernameRules' ) ) {
+		BPRA_UsernameRules::instance();
+	}
+
+	// BPRA_DuplicateCheck — class-duplicate-check.php
+	if ( class_exists( 'BPRA_DuplicateCheck' ) ) {
+		BPRA_DuplicateCheck::instance();
+	}
+
+	// BPRA_Admin — admin/class-admin.php
+	if ( class_exists( 'BPRA_Admin' ) ) {
+		BPRA_Admin::instance();
+	}
 }
 add_action( 'bp_include', 'bpra_bootstrap', 20 );
