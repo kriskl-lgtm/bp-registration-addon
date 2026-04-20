@@ -1,10 +1,10 @@
 <?php
 /**
  * Plugin Name: BP Registration Addon
- * Plugin URI:  https://github.com/kriskl-lgtm/bp-registration-addon
- * Description: Anti-spam protection for BuddyPress registration forms. Adds honeypot fields, math captcha, time-trap, disposable-email blocklist, and submission rate-limiting - no third-party services required.
- * Version:     1.0.0
- * Author:      kriskl-lgtm
+ * Plugin URI:  https://opentuition.com
+ * Description: Anti-spam protection for BuddyPress registration forms. Adds honeypot fields, math captcha, time-trap, disposable-email blocklist, banned-domains list, and submission rate-limiting - no third-party services required.
+ * Version:     1.1.0
+ * Author:      OpenTuition
  * License:     GPL-2.0-or-later
  * Text Domain: bp-registration-addon
  * Requires at least: 5.5
@@ -13,7 +13,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'BPRA_VERSION', '1.0.0' );
+define( 'BPRA_VERSION', '1.1.0' );
 define( 'BPRA_FILE', __FILE__ );
 define( 'BPRA_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BPRA_URL', plugin_dir_url( __FILE__ ) );
@@ -34,6 +34,8 @@ register_activation_hook( __FILE__, function () {
         'min_username_length'   => 4,
         'block_numeric_only'    => 1,
         'log_blocked'           => 1,
+        'enable_banned_domains' => 1,
+        'banned_domains'        => '',
     );
     if ( ! get_option( 'bpra_settings' ) ) {
         add_option( 'bpra_settings', $defaults );
@@ -60,6 +62,7 @@ function bpra_bootstrap() {
     require_once BPRA_DIR . 'includes/class-logger.php';
     require_once BPRA_DIR . 'includes/class-antispam.php';
     require_once BPRA_DIR . 'includes/class-disposable.php';
+    require_once BPRA_DIR . 'includes/class-banned-domains.php';
     require_once BPRA_DIR . 'includes/class-ratelimit.php';
     require_once BPRA_DIR . 'includes/class-username-rules.php';
 
@@ -67,6 +70,7 @@ function bpra_bootstrap() {
     BPRA_Logger::instance();
     BPRA_AntiSpam::instance();
     BPRA_Disposable::instance();
+    BPRA_BannedDomains::instance();
     BPRA_RateLimit::instance();
     BPRA_UsernameRules::instance();
 
@@ -92,6 +96,8 @@ function bpra_get_settings() {
         'min_username_length'   => 4,
         'block_numeric_only'    => 1,
         'log_blocked'           => 1,
+        'enable_banned_domains' => 1,
+        'banned_domains'        => '',
     );
     $saved = get_option( 'bpra_settings', array() );
     return wp_parse_args( is_array( $saved ) ? $saved : array(), $defaults );
