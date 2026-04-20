@@ -281,7 +281,7 @@ tempmail.com"><?php echo esc_textarea( isset( $s['banned_domains'] ) ? $s['banne
         </form>
         <br>
         <?php
-        $log = BPRA_Logger::get();
+        $log = BPRA_Logger::entries();
         if ( empty( $log ) ) {
             echo '<p>' . esc_html__( 'No blocked attempts recorded.', 'bp-registration-addon' ) . '</p>';
         } else {
@@ -291,7 +291,7 @@ tempmail.com"><?php echo esc_textarea( isset( $s['banned_domains'] ) ? $s['banne
             echo '<th>' . esc_html__( 'IP', 'bp-registration-addon' ) . '</th>';
             echo '<th>' . esc_html__( 'Context', 'bp-registration-addon' ) . '</th>';
             echo '</tr></thead><tbody>';
-            foreach ( array_reverse( $log ) as $entry ) {
+            foreach ( $log as $entry ) {
                 echo '<tr>';
                 echo '<td>' . esc_html( isset( $entry['time'] ) ? $entry['time'] : '' ) . '</td>';
                 echo '<td>' . esc_html( isset( $entry['reason'] ) ? $entry['reason'] : '' ) . '</td>';
