@@ -40,33 +40,48 @@ class BPRA_Admin {
 
 		register_setting( 'bpra_group', 'bpra_username_mode', array(
 			'type'              => 'string',
-			'sanitize_callback' => function( $v ) {
-				$allowed = array(
-					'letters_numbers',
-					'letters_numbers_dot',
-					'letters_numbers_dot_dash',
-					'wordpress_default',
-				);
-				return in_array( $v, $allowed, true ) ? $v : 'letters_numbers';
-			},
-			'default' => 'letters_numbers',
+			'sanitize_callback' => array( $this, 'sanitize_username_mode' ),
+			'default'           => 'letters_numbers',
 		) );
+	}
+
+	public function sanitize_username_mode( $value ) {
+		$allowed = array(
+			'letters_numbers',
+			'letters_numbers_dot',
+			'letters_numbers_dot_dash',
+			'wordpress_default',
+		);
+
+		return in_array( $value, $allowed, true ) ? $value : 'letters_numbers';
 	}
 
 	public function sanitize_settings( $input ) {
 		$clean = array();
+
 		$checkboxes = array(
-			'enable_honeypot', 'enable_timetrap', 'enable_math',
-			'enable_disposable', 'enable_ratelimit', 'enable_username_rules',
-			'block_numeric_only', 'log_blocked', 'enable_banned_domains',
+			'enable_honeypot',
+			'enable_timetrap',
+			'enable_math',
+			'enable_disposable',
+			'enable_ratelimit',
+			'enable_username_rules',
+			'block_numeric_only',
+			'log_blocked',
+			'enable_banned_domains',
 		);
+
 		foreach ( $checkboxes as $key ) {
 			$clean[ $key ] = ! empty( $input[ $key ] ) ? 1 : 0;
 		}
-		$clean['min_fill_seconds']   = isset( $input['min_fill_seconds'] ) ? absint( $input['min_fill_seconds'] ) : 5;
-		$clean['ratelimit_per_hour'] = isset( $input['ratelimit_per_hour'] ) ? absint( $input['ratelimit_per_hour'] ) : 5;
-		$clean['min_username_length'] = isset( $input['min_username_length'] ) ? max( 1, absint( $input['min_username_length'] ) ) : 3;
-		$clean['banned_domains']     = isset( $input['banned_domains'] ) ? sanitize_textarea_field( $input['banned_domains'] ) : '';
+
+		$clean['min_fill_seconds']            = isset( $input['min_fill_seconds'] ) ? absint( $input['min_fill_seconds'] ) : 5;
+		$clean['ratelimit_per_hour']          = isset( $input['ratelimit_per_hour'] ) ? absint( $input['ratelimit_per_hour'] ) : 5;
+		$clean['min_username_length']         = isset( $input['min_username_length'] ) ? max( 1, absint( $input['min_username_length'] ) ) : 3;
+		$clean['banned_domains']              = isset( $input['banned_domains'] ) ? sanitize_textarea_field( $input['banned_domains'] ) : '';
+		$clean['blocked_usernames']           = isset( $input['blocked_usernames'] ) ? sanitize_textarea_field( $input['blocked_usernames'] ) : '';
+		$clean['blocked_username_fragments']  = isset( $input['blocked_username_fragments'] ) ? sanitize_textarea_field( $input['blocked_username_fragments'] ) : '';
+
 		return $clean;
 	}
 
@@ -74,6 +89,7 @@ class BPRA_Admin {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( 'forbidden' );
 		}
+
 		check_admin_referer( 'bpra_clear_log' );
 		BPRA_Logger::clear();
 		wp_safe_redirect( admin_url( 'options-general.php?page=bpra&cleared=1' ) );
@@ -187,20 +203,25 @@ class BPRA_Admin {
 								<strong><?php esc_html_e( 'Username can contain:', 'bp-registration-addon' ); ?></strong>
 							</label><br>
 							<select id="bpra_username_mode" name="bpra_username_mode">
-								<option value="letters_numbers" <?php selected( $um, 'letters_numbers' ); ?>>
-									<?php esc_html_e( 'Only letters and numbers', 'bp-registration-addon' ); ?>
-								</option>
-								<option value="letters_numbers_dot" <?php selected( $um, 'letters_numbers_dot' ); ?>>
-									<?php esc_html_e( 'Letters, numbers and dot (.)', 'bp-registration-addon' ); ?>
-								</option>
-								<option value="letters_numbers_dot_dash" <?php selected( $um, 'letters_numbers_dot_dash' ); ?>>
-									<?php esc_html_e( 'Letters, numbers, dot (.) and dash (-)', 'bp-registration-addon' ); ?>
-								</option>
-								<option value="wordpress_default" <?php selected( $um, 'wordpress_default' ); ?>>
-									<?php esc_html_e( 'WordPress default: letters, numbers, ., -, @ and underscore', 'bp-registration-addon' ); ?>
-								</option>
+								<option value="letters_numbers" <?php selected( $um, 'letters_numbers' ); ?>><?php esc_html_e( 'Only letters and numbers', 'bp-registration-addon' ); ?></option>
+								<option value="letters_numbers_dot" <?php selected( $um, 'letters_numbers_dot' ); ?>><?php esc_html_e( 'Letters, numbers and dot (.)', 'bp-registration-addon' ); ?></option>
+								<option value="letters_numbers_dot_dash" <?php selected( $um, 'letters_numbers_dot_dash' ); ?>><?php esc_html_e( 'Letters, numbers, dot (.) and dash (-)', 'bp-registration-addon' ); ?></option>
+								<option value="wordpress_default" <?php selected( $um, 'wordpress_default' ); ?>><?php esc_html_e( 'WordPress default: letters, numbers, ., -, @ and underscore', 'bp-registration-addon' ); ?></option>
 							</select>
-							<p class="description"><?php esc_html_e( 'Controls which characters are allowed in usernames at registration. Works together with class-duplicate-check.php.', 'bp-registration-addon' ); ?></p>
+							<p class="description"><?php esc_html_e( 'Controls which characters are allowed in usernames at registration.', 'bp-registration-addon' ); ?></p>
+
+							<br>
+							<label for="bpra_blocked_usernames">
+								<strong><?php esc_html_e( 'Blocked usernames (exact match)', 'bp-registration-addon' ); ?></strong>
+							</label><br>
+							<textarea id="bpra_blocked_usernames" name="bpra_settings[blocked_usernames]" rows="6" cols="50" class="large-text code" placeholder="admin&#10;administrator&#10;support&#10;moderator"><?php echo esc_textarea( isset( $s['blocked_usernames'] ) ? $s['blocked_usernames'] : '' ); ?></textarea>
+							<p class="description"><?php esc_html_e( 'One username per line. Exact matches only.', 'bp-registration-addon' ); ?></p>
+
+							<label for="bpra_blocked_username_fragments">
+								<strong><?php esc_html_e( 'Blocked username fragments', 'bp-registration-addon' ); ?></strong>
+							</label><br>
+							<textarea id="bpra_blocked_username_fragments" name="bpra_settings[blocked_username_fragments]" rows="6" cols="50" class="large-text code" placeholder="admin&#10;staff&#10;vulgarword"><?php echo esc_textarea( isset( $s['blocked_username_fragments'] ) ? $s['blocked_username_fragments'] : '' ); ?></textarea>
+							<p class="description"><?php esc_html_e( 'One fragment per line. If a username contains any fragment, registration is blocked.', 'bp-registration-addon' ); ?></p>
 						</td>
 					</tr>
 
