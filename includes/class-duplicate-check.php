@@ -14,10 +14,13 @@ if ( ! defined( 'ABSPATH' ) ) {
  * - username character restrictions (configurable)
  * - blocking email addresses used as usernames
  * - blocking reserved/vulgar usernames
+ * - optional signup nonce / CSRF validation
  */
 class BPRA_DuplicateCheck {
 
 	const OPTION_USERNAME_MODE = 'bpra_username_mode';
+	const NONCE_ACTION         = 'bpra_signup_action';
+	const NONCE_FIELD          = 'bpra_signup_nonce';
 
 	private static $instance = null;
 
@@ -29,12 +32,43 @@ class BPRA_DuplicateCheck {
 	}
 
 	private function __construct() {
+		add_action( 'bp_before_registration_submit_buttons', array( $this, 'render_signup_nonce' ) );
 		add_action( 'bp_signup_validate', array( $this, 'validate_bp' ), 8 );
 		add_filter( 'wpmu_validate_user_signup', array( $this, 'validate_wpmu' ), 20 );
 		add_filter( 'validate_username', array( $this, 'restrict_characters' ), 10, 2 );
 		add_filter( 'registration_errors', array( $this, 'username_registration_errors' ), 20, 3 );
 		add_filter( 'gettext', array( $this, 'username_error_message' ), 20, 3 );
 		add_filter( 'bp_core_validate_user_signup', array( $this, 'no_email_as_username' ), 20 );
+	}
+
+	private static function get_settings() {
+		return function_exists( 'bpra_get_settings' ) ? bpra_get_settings() : array();
+	}
+
+	private static function nonce_enabled() {
+		$s = self::get_settings();
+		return ! empty( $s['enable_signup_nonce'] );
+	}
+
+	public function render_signup_nonce() {
+		if ( ! self::nonce_enabled() ) {
+			return;
+		}
+
+		wp_nonce_field( self::NONCE_ACTION, self::NONCE_FIELD );
+	}
+
+	private static function has_valid_nonce() {
+		if ( ! self::nonce_enabled() ) {
+			return true;
+		}
+
+		$nonce = isset( $_POST[ self::NONCE_FIELD ] ) ? wp_unslash( $_POST[ self::NONCE_FIELD ] ) : '';
+		if ( empty( $nonce ) ) {
+			return false;
+		}
+
+		return (bool) wp_verify_nonce( $nonce, self::NONCE_ACTION );
 	}
 
 	public static function username_exists( $username ) {
@@ -130,7 +164,7 @@ class BPRA_DuplicateCheck {
 	}
 
 	private static function get_blocked_usernames() {
-		$s = function_exists( 'bpra_get_settings' ) ? bpra_get_settings() : array();
+		$s = self::get_settings();
 		$raw = isset( $s['blocked_usernames'] ) ? $s['blocked_usernames'] : '';
 		$items = preg_split( '/\r\n|\r|\n/', (string) $raw );
 		$items = array_map( 'trim', $items );
@@ -139,7 +173,7 @@ class BPRA_DuplicateCheck {
 	}
 
 	private static function get_blocked_username_fragments() {
-		$s = function_exists( 'bpra_get_settings' ) ? bpra_get_settings() : array();
+		$s = self::get_settings();
 		$raw = isset( $s['blocked_username_fragments'] ) ? $s['blocked_username_fragments'] : '';
 		$items = preg_split( '/\r\n|\r|\n/', (string) $raw );
 		$items = array_map( 'trim', $items );
@@ -173,6 +207,11 @@ class BPRA_DuplicateCheck {
 		global $bp;
 		$errors = isset( $bp->signup->errors ) ? $bp->signup->errors : array();
 
+		if ( ! self::has_valid_nonce() ) {
+			$errors['signup_nonce'] = __( 'Security check failed. Please refresh the page and try again.', 'bp-registration-addon' );
+			BPRA_Logger::log( 'invalid_signup_nonce', array() );
+		}
+
 		$username = isset( $_POST['signup_username'] ) ? trim( (string) wp_unslash( $_POST['signup_username'] ) ) : '';
 		if ( $username !== '' && ! isset( $errors['signup_username'] ) ) {
 			if ( self::username_exists( $username ) ) {
@@ -202,6 +241,16 @@ class BPRA_DuplicateCheck {
 	}
 
 	public function validate_wpmu( $result ) {
+		if ( self::nonce_enabled() ) {
+			$nonce = isset( $_POST[ self::NONCE_FIELD ] ) ? wp_unslash( $_POST[ self::NONCE_FIELD ] ) : '';
+			if ( empty( $nonce ) || ! wp_verify_nonce( $nonce, self::NONCE_ACTION ) ) {
+				if ( ! isset( $result['errors'] ) || ! is_wp_error( $result['errors'] ) ) {
+					$result['errors'] = new WP_Error();
+				}
+				$result['errors']->add( 'signup_nonce', __( 'Security check failed. Please refresh the page and try again.', 'bp-registration-addon' ) );
+			}
+		}
+
 		$user_email = isset( $result['user_email'] ) ? sanitize_email( $result['user_email'] ) : '';
 		if ( ! empty( $user_email ) && self::email_exists( $user_email ) ) {
 			if ( ! isset( $result['errors'] ) || ! is_wp_error( $result['errors'] ) ) {
