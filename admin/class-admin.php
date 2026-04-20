@@ -69,6 +69,7 @@ class BPRA_Admin {
 			'block_numeric_only',
 			'log_blocked',
 			'enable_banned_domains',
+			'enable_signup_nonce',
 		);
 
 		foreach ( $checkboxes as $key ) {
@@ -178,6 +179,17 @@ class BPRA_Admin {
 								<?php esc_html_e( 'Max per hour:', 'bp-registration-addon' ); ?>
 								<input type="number" min="0" name="bpra_settings[ratelimit_per_hour]" value="<?php echo esc_attr( $s['ratelimit_per_hour'] ); ?>" class="small-text">
 							</label>
+						</td>
+					</tr>
+
+					<tr>
+						<th><?php esc_html_e( 'CSRF / nonce protection', 'bp-registration-addon' ); ?></th>
+						<td>
+							<label>
+								<input type="checkbox" name="bpra_settings[enable_signup_nonce]" value="1" <?php checked( ! empty( $s['enable_signup_nonce'] ) ); ?>>
+								<?php esc_html_e( 'Add and validate a nonce on the registration form.', 'bp-registration-addon' ); ?>
+							</label>
+							<p class="description"><?php esc_html_e( 'Use this as an extra request-authenticity check. Disable it if your registration template does not render the nonce field correctly.', 'bp-registration-addon' ); ?></p>
 						</td>
 					</tr>
 
