@@ -1,98 +1,157 @@
 <?php
-if ( ! defined( 'ABSPATH' ) ) exit;
-
 /**
- * Check for duplicate usernames and email addresses during BuddyPress registration.
- *
- * BuddyPress core already does basic checks, but this class adds an extra
- * validation layer that checks:
- *  - wp_users table (existing WordPress users)
- *  - wp_signups table (pending/unactivated BuddyPress signups)
- *
- * This prevents the scenario where a user registers with an email/username
- * that is already taken by a pending (unactivated) signup, which BuddyPress
- * core sometimes misses depending on configuration.
+ * Duplicate email checks + configurable username rules for BuddyPress registration.
  */
-class BPRA_DuplicateCheck {
-  private static $instance = null;
 
-  public static function instance() {
-    if ( self::$instance === null ) self::$instance = new self();
-    return self::$instance;
-  }
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
 
-  private function __construct() {
-    // Run at priority 8 so it fires before our anti-spam checks (10+).
-    add_action( 'bp_signup_validate', array( $this, 'validate' ), 8 );
-  }
+class BPRA_Duplicate_Check {
+	const OPTION_USERNAME_MODE = 'bpra_username_mode';
 
-  /**
-   * Check if a username already exists in wp_users or wp_signups.
-   */
-  public static function username_exists( $username ) {
-    $username = sanitize_user( strtolower( trim( $username ) ) );
-    if ( $username === '' ) return false;
+	public static function init() {
+		add_filter( 'wpmu_validate_user_signup', array( __CLASS__, 'check_email_already_registered' ), 20 );
+		add_filter( 'validate_username', array( __CLASS__, 'restrict_username_characters' ), 10, 2 );
+		add_filter( 'gettext', array( __CLASS__, 'username_error_message' ), 20, 3 );
+		add_filter( 'registration_errors', array( __CLASS__, 'username_registration_errors' ), 20, 3 );
+		add_filter( 'bp_core_validate_user_signup', array( __CLASS__, 'no_email_as_username' ), 20 );
+	}
 
-    // Check existing WordPress users.
-    if ( username_exists( $username ) ) return true;
+	public static function check_email_already_registered( $result ) {
+		global $wpdb;
 
-    // Check pending BuddyPress signups.
-    global $wpdb;
-    $signups_table = $wpdb->prefix . 'signups';
-    if ( $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$signups_table} WHERE user_login = %s AND active = 0", $username ) ) > 0 ) {
-      return true;
-    }
+		$user_email = isset( $result['user_email'] ) ? sanitize_email( $result['user_email'] ) : '';
+		if ( empty( $user_email ) ) {
+			return $result;
+		}
 
-    return false;
-  }
+		$signups_table = $wpdb->base_prefix . 'signups';
+		$users_table   = $wpdb->base_prefix . 'users';
 
-  /**
-   * Check if an email already exists in wp_users or wp_signups.
-   */
-  public static function email_exists( $email ) {
-    $email = sanitize_email( strtolower( trim( $email ) ) );
-    if ( $email === '' ) return false;
+		$signup_email_exists = 0;
+		$user_email_exists   = 0;
 
-    // Check existing WordPress users.
-    if ( email_exists( $email ) ) return true;
+		$signup_table_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $signups_table ) );
+		if ( $signup_table_exists === $signups_table ) {
+			$signup_email_exists = (int) $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(*) FROM `{$signups_table}` WHERE `user_email` = %s",
+					$user_email
+				)
+			);
+		}
 
-    // Check pending BuddyPress signups.
-    global $wpdb;
-    $signups_table = $wpdb->prefix . 'signups';
-    if ( $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$signups_table} WHERE user_email = %s AND active = 0", $email ) ) > 0 ) {
-      return true;
-    }
+		$user_email_exists = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM `{$users_table}` WHERE `user_email` = %s",
+				$user_email
+			)
+		);
 
-    return false;
-  }
+		if ( $signup_email_exists > 0 || $user_email_exists > 0 ) {
+			if ( ! isset( $result['errors'] ) || ! is_wp_error( $result['errors'] ) ) {
+				$result['errors'] = new WP_Error();
+			}
+			$result['errors']->add( 'user_email', __( 'This email address is already registered.', 'bp-registration-addon' ) );
+		}
 
-  /**
-   * Validate during registration.
-   */
-  public function validate() {
-    global $bp;
-    $errors = isset( $bp->signup->errors ) ? $bp->signup->errors : array();
+		return $result;
+	}
 
-    // Username check.
-    $username = isset( $_POST['signup_username'] ) ? trim( (string) $_POST['signup_username'] ) : '';
-    if ( $username !== '' && ! isset( $errors['signup_username'] ) ) {
-      if ( self::username_exists( $username ) ) {
-        $errors['signup_username'] = __( 'That username is already taken. Please choose another.', 'bp-registration-addon' );
-        BPRA_Logger::log( 'duplicate_username', array( 'username' => $username ) );
-      }
-    }
+	public static function restrict_username_characters( $valid, $username ) {
+		return self::username_matches_rule( $username ) ? $valid : false;
+	}
 
-    // Email check.
-    $email = isset( $_POST['signup_email'] ) ? trim( (string) $_POST['signup_email'] ) : '';
-    if ( $email !== '' && ! isset( $errors['signup_email'] ) ) {
-      if ( self::email_exists( $email ) ) {
-        $errors['signup_email'] = __( 'That email address is already registered. Please use a different one or try logging in.', 'bp-registration-addon' );
-        BPRA_Logger::log( 'duplicate_email', array( 'email_domain' => substr( $email, strpos( $email, '@' ) + 1 ) ) );
-      }
-    }
+	public static function username_error_message( $translated_text, $text, $domain ) {
+		$map = array(
+			'letters_numbers'          => __( 'Usernames can contain only letters and numbers.', 'bp-registration-addon' ),
+			'letters_numbers_dot'      => __( 'Usernames can contain only letters, numbers, and dots.', 'bp-registration-addon' ),
+			'letters_numbers_dot_dash' => __( 'Usernames can contain only letters, numbers, dots, and dashes.', 'bp-registration-addon' ),
+			'wordpress_default'        => __( 'Usernames can contain only letters, numbers, ., -, and @.', 'bp-registration-addon' ),
+		);
 
-    if ( ! empty( $errors ) ) {
-      $bp->signup->errors = $errors;
-    }
-  }
+		if ( 'Usernames can contain only letters, numbers, ., -, and @.' === $text ) {
+			$mode = self::get_username_mode();
+			return isset( $map[ $mode ] ) ? $map[ $mode ] : $translated_text;
+		}
+
+		return $translated_text;
+	}
+
+	public static function username_registration_errors( $errors, $sanitized_user_login, $user_email ) {
+		$username = isset( $_POST['user_login'] ) ? wp_unslash( $_POST['user_login'] ) : '';
+
+		if ( $username && ! self::username_matches_rule( $username ) ) {
+			$errors->add( 'invalid_username', self::get_username_error_text() );
+		}
+
+		return self::dedupe_errors( $errors );
+	}
+
+	public static function no_email_as_username( $result ) {
+		if ( ! empty( $result['user_name'] ) && is_email( $result['user_name'] ) ) {
+			if ( ! isset( $result['errors'] ) || ! is_wp_error( $result['errors'] ) ) {
+				$result['errors'] = new WP_Error();
+			}
+			$result['errors']->add( 'user_name', __( 'Usernames cannot be email addresses. Please choose another username.', 'bp-registration-addon' ) );
+		}
+
+		return $result;
+	}
+
+	public static function get_username_mode() {
+		return get_option( self::OPTION_USERNAME_MODE, 'letters_numbers' );
+	}
+
+	public static function username_matches_rule( $username ) {
+		$username = (string) $username;
+		$mode = self::get_username_mode();
+
+		switch ( $mode ) {
+			case 'letters_numbers_dot':
+				return (bool) preg_match( '/^[a-zA-Z0-9.]+$/', $username );
+			case 'letters_numbers_dot_dash':
+				return (bool) preg_match( '/^[a-zA-Z0-9.-]+$/', $username );
+			case 'wordpress_default':
+				return (bool) preg_match( '/^[A-Za-z0-9_\\.@-]+$/', $username );
+			case 'letters_numbers':
+			default:
+				return (bool) preg_match( '/^[a-zA-Z0-9]+$/', $username );
+		}
+	}
+
+	public static function get_username_error_text() {
+		$map = array(
+			'letters_numbers'          => __( 'Usernames can contain only letters and numbers.', 'bp-registration-addon' ),
+			'letters_numbers_dot'      => __( 'Usernames can contain only letters, numbers, and dots.', 'bp-registration-addon' ),
+			'letters_numbers_dot_dash' => __( 'Usernames can contain only letters, numbers, dots, and dashes.', 'bp-registration-addon' ),
+			'wordpress_default'        => __( 'Usernames can contain only letters, numbers, ., -, and @.', 'bp-registration-addon' ),
+		);
+
+		$mode = self::get_username_mode();
+		return isset( $map[ $mode ] ) ? $map[ $mode ] : $map['letters_numbers'];
+	}
+
+	private static function dedupe_errors( $errors ) {
+		if ( ! is_wp_error( $errors ) ) {
+			return $errors;
+		}
+
+		$deduped = new WP_Error();
+		$seen = array();
+
+		foreach ( $errors->errors as $code => $messages ) {
+			foreach ( $messages as $message ) {
+				$signature = md5( $code . '|' . wp_strip_all_tags( $message ) );
+				if ( isset( $seen[ $signature ] ) ) {
+					continue;
+				}
+				$seen[ $signature ] = true;
+				$deduped->add( $code, wp_strip_all_tags( $message ) );
+			}
+		}
+
+		return $deduped;
+	}
 }
