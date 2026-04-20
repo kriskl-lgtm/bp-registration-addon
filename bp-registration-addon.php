@@ -121,12 +121,12 @@ function bpra_bootstrap() {
 		return;
 	}
 
-	BPRA_Settings::init();
-	BPRA_AntiSpam::init();
-	BPRA_Banned_Domains::init();
-	BPRA_Disposable::init();
-	BPRA_RateLimit::init();
-	BPRA_Username_Rules::init();
+	BPRA_Settings::instance();
+	BPRA_AntiSpam::instance();
+	BPRA_Banned_Domains::instance();
+	BPRA_Disposable::instance();
+	BPRA_RateLimit::instance();
+	BPRA_Username_Rules::instance();
 	BPRA_DuplicateCheck::instance();
 	BPRA_Admin::instance();
 }
