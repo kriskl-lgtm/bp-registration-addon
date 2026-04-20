@@ -2,8 +2,8 @@
 /**
  * Plugin Name: BP Registration Addon
  * Plugin URI:  https://opentuition.com
- * Description: Anti-spam protection for BuddyPress registration forms. Adds honeypot fields, math captcha, time-trap, disposable-email blocklist, banned-domains list, and submission rate-limiting - no third-party services required.
- * Version:     1.1.0
+ * Description: Anti-spam protection for BuddyPress registration forms. Adds honeypot fields, math captcha, time-trap, disposable-email blocklist, banned-domains list, duplicate username/email check, and submission rate-limiting - no third-party services required.
+ * Version:     1.2.0
  * Author:      OpenTuition
  * License:     GPL-2.0-or-later
  * Text Domain: bp-registration-addon
@@ -13,7 +13,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'BPRA_VERSION', '1.1.0' );
+define( 'BPRA_VERSION', '1.2.0' );
 define( 'BPRA_FILE', __FILE__ );
 define( 'BPRA_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BPRA_URL', plugin_dir_url( __FILE__ ) );
@@ -54,12 +54,21 @@ function bpra_maybe_bootstrap_fallback() {
             if ( ! current_user_can( 'manage_options' ) ) return;
             echo '<div class="notice notice-warning"><p><strong>BP Registration Addon:</strong> BuddyPress is not active. This addon only works when BuddyPress is installed and active.</p></div>';
         });
+        return;
     }
+    // Warn if BuddyPress registration is disabled.
+    add_action( 'admin_notices', function () {
+        if ( ! current_user_can( 'manage_options' ) ) return;
+        if ( function_exists( 'bp_get_signup_allowed' ) && ! bp_get_signup_allowed() ) {
+            echo '<div class="notice notice-warning"><p><strong>BP Registration Addon:</strong> BuddyPress registration is currently disabled. Go to <a href="' . esc_url( admin_url( 'options-general.php' ) ) . '">Settings &rarr; General</a> and check "Anyone can register" for the anti-spam protections to take effect.</p></div>';
+        }
+    });
 }
 
 function bpra_bootstrap() {
     require_once BPRA_DIR . 'includes/class-settings.php';
     require_once BPRA_DIR . 'includes/class-logger.php';
+    require_once BPRA_DIR . 'includes/class-duplicate-check.php';
     require_once BPRA_DIR . 'includes/class-antispam.php';
     require_once BPRA_DIR . 'includes/class-disposable.php';
     require_once BPRA_DIR . 'includes/class-banned-domains.php';
@@ -68,6 +77,7 @@ function bpra_bootstrap() {
 
     BPRA_Settings::instance();
     BPRA_Logger::instance();
+    BPRA_DuplicateCheck::instance();
     BPRA_AntiSpam::instance();
     BPRA_Disposable::instance();
     BPRA_BannedDomains::instance();
