@@ -23,17 +23,17 @@ define( 'BPRA_URL', plugin_dir_url( __FILE__ ) );
  */
 register_activation_hook( __FILE__, function () {
     $defaults = array(
-        'enable_honeypot'      => 1,
-        'enable_timetrap'      => 1,
-        'min_fill_seconds'     => 3,
-        'enable_math_captcha'  => 1,
-        'enable_disposable'    => 1,
-        'enable_ratelimit'     => 1,
-        'ratelimit_per_hour'   => 5,
-        'enable_username_rules'=> 1,
-        'min_username_length'  => 4,
-        'block_numeric_only'   => 1,
-        'log_blocked'          => 1,
+        'enable_honeypot'       => 1,
+        'enable_timetrap'       => 1,
+        'min_fill_seconds'      => 3,
+        'enable_math'           => 1,
+        'enable_disposable'     => 1,
+        'enable_ratelimit'      => 1,
+        'ratelimit_per_hour'    => 5,
+        'enable_username_rules' => 1,
+        'min_username_length'   => 4,
+        'block_numeric_only'    => 1,
+        'log_blocked'           => 1,
     );
     if ( ! get_option( 'bpra_settings' ) ) {
         add_option( 'bpra_settings', $defaults );
@@ -57,21 +57,21 @@ function bpra_maybe_bootstrap_fallback() {
 
 function bpra_bootstrap() {
     require_once BPRA_DIR . 'includes/class-settings.php';
+    require_once BPRA_DIR . 'includes/class-logger.php';
     require_once BPRA_DIR . 'includes/class-antispam.php';
     require_once BPRA_DIR . 'includes/class-disposable.php';
     require_once BPRA_DIR . 'includes/class-ratelimit.php';
     require_once BPRA_DIR . 'includes/class-username-rules.php';
-    require_once BPRA_DIR . 'includes/class-logger.php';
 
     BPRA_Settings::instance();
+    BPRA_Logger::instance();
     BPRA_AntiSpam::instance();
     BPRA_Disposable::instance();
     BPRA_RateLimit::instance();
-    BPRA_Username_Rules::instance();
-    BPRA_Logger::instance();
+    BPRA_UsernameRules::instance();
 
     if ( is_admin() ) {
-        require_once BPRA_DIR . 'includes/class-admin.php';
+        require_once BPRA_DIR . 'admin/class-admin.php';
         BPRA_Admin::instance();
     }
 }
@@ -84,7 +84,7 @@ function bpra_get_settings() {
         'enable_honeypot'       => 1,
         'enable_timetrap'       => 1,
         'min_fill_seconds'      => 3,
-        'enable_math_captcha'   => 1,
+        'enable_math'           => 1,
         'enable_disposable'     => 1,
         'enable_ratelimit'      => 1,
         'ratelimit_per_hour'    => 5,
